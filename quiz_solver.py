@@ -57,8 +57,7 @@ class QuizSolver:
     
     def solve(self, quiz_url):
         """Main solve method - orchestrates the quiz solving"""
-        try:
-try:
+            try:
                 html, text = asyncio.run(self.render_page(quiz_url))
             except RuntimeError as e:
                 if "already running" in str(e):
