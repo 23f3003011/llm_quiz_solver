@@ -21,23 +21,31 @@ class LLMHandler:
         if self.openai_key:
             try:
                 from openai import OpenAI
-                self.client = OpenAI(api_key=self.openai_key)
+                # Initialize without proxies to avoid compatibility issues
+                self.client = OpenAI(
+                    api_key=self.openai_key,
+                    timeout=30.0,
+                    max_retries=2
+                )
                 self.provider = 'openai'
                 logger.info("OpenAI client initialized successfully")
             except Exception as e:
                 logger.warning(f"OpenAI initialization failed: {str(e)}")
+                self.client = None
         
         if not self.client and self.anthropic_key:
             try:
                 from anthropic import Anthropic
+                # Initialize without proxies to avoid compatibility issues
                 self.client = Anthropic(api_key=self.anthropic_key)
                 self.provider = 'anthropic'
                 logger.info("Anthropic client initialized successfully")
             except Exception as e:
                 logger.warning(f"Anthropic initialization failed: {str(e)}")
+                self.client = None
         
         if not self.client:
-            logger.error("No LLM client could be initialized")
+            logger.error("No LLM client could be initialized - check API keys")
     
     def plan_solution(self, question):
         """Ask LLM to plan the solution approach"""
