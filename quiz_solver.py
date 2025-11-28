@@ -57,15 +57,23 @@ class QuizSolver:
     
     def solve(self, quiz_url):
         """Main solve method - orchestrates the quiz solving"""
-            try:
-                html, text = asyncio.run(self.render_page(quiz_url))
-            except RuntimeError as e:
-                if "already running" in str(e):
-                    html, text = asyncio.get_event_loop().run_until_complete(self.render_page(quiz_url))
-                else:
-                    raise
-            
-            if not html or not text:
+                            html, text = asyncio.run(self.render_page(quiz_url))
+        
+        if not html or not text:
+            raise Exception("Failed to render quiz page")
+        
+        question = self.extract_question(text)
+        submit_url = self.extract_submit_url(html)
+        
+        logger.info(f"Question: {question}")
+        logger.info(f"Submit URL: {submit_url}")
+        
+        plan = self.llm.plan_solution(question)
+        logger.info(f"Plan: {plan}")
+        
+        answer = self.execute_plan(plan, question, quiz_url, html)
+        
+        return answertml or not text:
                 raise Exception("Failed to render quiz page")
             
             question = self.extract_question(text)
