@@ -1,14 +1,19 @@
-services:
-  - type: web
-    name: llm-quiz-solver
-    runtime: python
-    plan: free
-    buildCommand: bash build.sh
-    startCommand: python main.py
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11
-      - key: PYTHONUNBUFFERED
-        value: "1"
-      - key: PORT
-        value: "5000"
+#!/bin/bash
+set -e
+
+echo "=== Starting Build Process ==="
+
+# Upgrade pip
+echo "📦 Upgrading pip..."
+pip install --upgrade pip setuptools wheel
+
+# Install requirements
+echo "📥 Installing Python dependencies..."
+pip install -r requirements.txt
+
+# Install Playwright browsers
+echo "🎮 Installing Playwright browsers..."
+python -m playwright install chromium
+python -m playwright install-deps chromium
+
+echo "✅ Build completed successfully!"
