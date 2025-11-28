@@ -4,10 +4,13 @@ services:
     runtime: python
     plan: free
     buildCommand: >
+      pip install --upgrade pip &&
       pip install -r requirements.txt &&
-      playwright install chromium &&
-      playwright install-deps
-    startCommand: python main.py
+      python -m playwright install chromium &&
+      python -m playwright install-deps
+    startCommand: gunicorn main:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.11
+      - key: PYTHONUNBUFFERED
+        value: "1"
