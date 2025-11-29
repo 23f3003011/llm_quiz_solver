@@ -24,54 +24,98 @@ class QuizSolver:
             from playwright.async_api import async_playwright
             
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
+                # FIX: Add browser arguments for stability
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu',
+                    ]
+                )
                 page = await browser.new_page()
-                await page.goto(url, wait_until='networkidle', timeout=30000)
                 
-                await page.wait_for_timeout(2000)
-                
-                content = await page.content()
-                text = await page.evaluate('document.body.innerText')
-                
-                await browser.close()
-                return content, text
+                try:
+                    await page.goto(url, wait_until='networkidle', timeout=45000)
+                    await page.wait_for_timeout(2000)
+                    
+                    content = await page.content()
+                    text = await page.evaluate('document.body.innerText')
+                    
+                    await browser.close()
+                    return content, text
+                except Exception as e:
+                    await browser.close()
+                    logger.error(f"Error loading page {url}: {str(e)}")
+                    raise
+                    
         except Exception as e:
             logger.error(f"Error rendering page: {str(e)}")
-            return None, None
+            raise Exception(f"Failed to render page: {str(e)}")
     
     def solve(self, quiz_url):
         """Main solve method - orchestrates the quiz solving"""
-        html, text = asyncio.run(self.render_page(quiz_url))
-        
-        if not html or not text:
-            raise Exception("Failed to render quiz page")
-        
-        question = self.extract_question(text)
-        submit_url = self.extract_submit_url(html)
-        
-        logger.info(f"Question: {question}")
-        logger.info(f"Submit URL: {submit_url}")
-        
-        plan = self.llm.plan_solution(question)
-        logger.info(f"Plan: {plan}")
-        
-        answer = self.execute_plan(plan, question, quiz_url, html)
-        
-        return answer
+        try:
+            logger.info(f"Starting to solve quiz: {quiz_url}")
+            html, text = asyncio.run(self.render_page(quiz_url))
+            
+            if not html or not text:
+                raise Exception("Failed to render quiz page")
+            
+            question = self.extract_question(text)
+            submit_url = self.extract_submit_url(html)
+            
+            logger.info(f"Question: {question}")
+            logger.info(f"Submit URL: {submit_url}")
+            
+            plan = self.llm.plan_solution(question)
+            logger.info(f"Plan: {plan}")
+            
+            answer = self.execute_plan(plan, question, quiz_url, html)
+            logger.info(f"Generated answer: {answer}")
+            
+            return answer
+        except Exception as e:
+            logger.error(f"Error in solve: {str(e)}", exc_info=True)
+            raise
     
     def extract_question(self, text):
         """Extract quiz question from page text"""
         lines = text.split('\n')
         for line in lines:
-            if line.strip().startswith('Q') and '.' in line:
-                return line.strip()
+            line = line.strip()
+            if line and line[0].isalpha() and '.' in line:
+                return line
+        # Fallback
         return text[:500]
     
     def extract_submit_url(self, html):
-        """Extract submit URL from HTML"""
-        urls = re.findall(r'https?://[^\s"\\<>]+', html)
-        submit_urls = [u for u in urls if 'submit' in u.lower() or 'answer' in u.lower()]
-        return submit_urls[0] if submit_urls else None
+        """Extract submit URL from HTML - improved regex"""
+        try:
+            # Look in href attributes first
+            href_pattern = r'href=["\']([^"\']+)["\']'
+            hrefs = re.findall(href_pattern, html)
+            
+            # Also look for raw URLs
+            url_pattern = r'https?://[^\s"<>\']+(?:[/\w\-._~:/?#[\]@!$&\'()*+,;=]*)?'
+            urls = re.findall(url_pattern, html)
+            
+            all_urls = hrefs + urls
+            submit_urls = [u for u in all_urls if 'submit' in u.lower() or 'answer' in u.lower()]
+            
+            if submit_urls:
+                return submit_urls[0]
+            
+            # If no submit URL found, try to find any URL that looks like an endpoint
+            if urls:
+                logger.warning("No submit URL found, using first URL found")
+                return urls[0]
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error extracting submit URL: {str(e)}")
+            return None
     
     def execute_plan(self, plan, question, quiz_url, html):
         """Execute the solving strategy based on question type"""
@@ -95,6 +139,7 @@ class QuizSolver:
             urls = re.findall(r'https?://[^\s"]+\.(pdf|csv|xlsx|json)', html)
             if urls:
                 file_url = urls[0]
+                logger.info(f"Downloading file: {file_url}")
                 response = requests.get(file_url, timeout=30)
                 
                 if file_url.endswith('.pdf'):
@@ -116,6 +161,7 @@ class QuizSolver:
             text = ""
             for page in reader.pages:
                 text += page.extract_text()
+            logger.info(f"PDF extracted: {len(text)} characters")
             return self.llm.solve_generic(f"{question}\n\nPDF content: {text[:2000]}")
         except Exception as e:
             logger.error(f"Error processing PDF: {str(e)}")
@@ -126,6 +172,7 @@ class QuizSolver:
         try:
             import pandas as pd
             df = pd.read_csv(BytesIO(content))
+            logger.info(f"CSV loaded: {df.shape[0]} rows, {df.shape[1]} columns")
             return self.llm.solve_generic(f"{question}\n\nData: {df.to_string()[:2000]}")
         except Exception as e:
             logger.error(f"Error processing CSV: {str(e)}")
@@ -136,6 +183,7 @@ class QuizSolver:
         try:
             import pandas as pd
             df = pd.read_excel(BytesIO(content))
+            logger.info(f"Excel loaded: {df.shape[0]} rows, {df.shape[1]} columns")
             return self.llm.solve_generic(f"{question}\n\nData: {df.to_string()[:2000]}")
         except Exception as e:
             logger.error(f"Error processing Excel: {str(e)}")
@@ -147,6 +195,7 @@ class QuizSolver:
             api_match = re.search(r'https://[^\s]+', question)
             if api_match:
                 api_url = api_match.group(0)
+                logger.info(f"Calling API: {api_url}")
                 response = requests.get(api_url, timeout=10)
                 data = response.json()
                 return self.llm.solve_generic(f"{question}\n\nAPI Response: {json.dumps(data)[:2000]}")
@@ -157,10 +206,12 @@ class QuizSolver:
     
     def handle_data_analysis(self, question, quiz_url, html):
         """Handle data analysis questions"""
+        logger.info("Handling data analysis question")
         return self.llm.solve_generic(question)
     
     def handle_visualization(self, question, quiz_url):
         """Handle visualization questions"""
+        logger.info("Handling visualization question")
         return self.llm.solve_generic(question)
     
     def submit_answer(self, email, secret, url, answer):
@@ -175,6 +226,7 @@ class QuizSolver:
         submit_endpoint = 'https://tds-llm-analysis.s-anand.net/submit'
         
         try:
+            logger.info(f"Submitting answer to {submit_endpoint}")
             response = requests.post(submit_endpoint, json=payload, timeout=30)
             return response.json()
         except Exception as e:
