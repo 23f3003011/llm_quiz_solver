@@ -55,20 +55,29 @@ def quiz():
         if not email or not quiz_url:
             return jsonify({'error': 'Missing email or url'}), 400
         
-        # FIX: Add separator between email and url
-        session_key = f"{email}:{quiz_url}"
+        # Use email as session key (not email+url, to allow multiple quizzes)
+        session_key = email
         
         if session_key not in active_sessions:
             active_sessions[session_key] = {
                 'start_time': time.time(),
-                'attempts': 0
+                'attempts': 0,
+                'urls_attempted': set()
             }
             logger.info(f"New session: {email}")
+        
+        # Check if same URL was already attempted
+        if quiz_url in active_sessions[session_key]['urls_attempted']:
+            logger.warning(f"Duplicate URL attempt for {email}: {quiz_url}")
+            return jsonify({'error': 'Duplicate quiz URL'}), 400
         
         elapsed = time.time() - active_sessions[session_key]['start_time']
         if elapsed > 180:
             logger.warning(f"Session timeout for {email}")
             return jsonify({'error': 'Quiz timeout (3 minutes exceeded)'}), 408
+        
+        # Track this URL
+        active_sessions[session_key]['urls_attempted'].add(quiz_url)
         
         logger.info(f"Processing quiz for {email} - Attempt {active_sessions[session_key]['attempts'] + 1}")
         
