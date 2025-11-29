@@ -61,42 +61,42 @@ def quiz():
         if session_key not in active_sessions:
             active_sessions[session_key] = {
                 'start_time': time.time(),
-                'attempts': 0,
-                'urls_attempted': set()
+                'attempts': 0
             }
             logger.info(f"New session: {email}")
-        
-        # Check if same URL was already attempted
-        if quiz_url in active_sessions[session_key]['urls_attempted']:
-            logger.warning(f"Duplicate URL attempt for {email}: {quiz_url}")
-            return jsonify({'error': 'Duplicate quiz URL'}), 400
         
         elapsed = time.time() - active_sessions[session_key]['start_time']
         if elapsed > 180:
             logger.warning(f"Session timeout for {email}")
+            # Reset session if timeout
+            active_sessions[session_key] = {
+                'start_time': time.time(),
+                'attempts': 0
+            }
             return jsonify({'error': 'Quiz timeout (3 minutes exceeded)'}), 408
-        
-        # Track this URL
-        active_sessions[session_key]['urls_attempted'].add(quiz_url)
         
         logger.info(f"Processing quiz for {email} - Attempt {active_sessions[session_key]['attempts'] + 1}")
         
-        solver = QuizSolver()
-        answer = solver.solve(quiz_url)
-        
-        logger.info(f"Answer generated: {answer}")
-        
-        result = solver.submit_answer(
-            email=email,
-            secret=SECRET,
-            url=quiz_url,
-            answer=answer
-        )
-        
-        active_sessions[session_key]['attempts'] += 1
-        
-        logger.info(f"Result: {result}")
-        return jsonify(result), 200
+        try:
+            solver = QuizSolver()
+            answer = solver.solve(quiz_url)
+            
+            logger.info(f"Answer generated: {answer}")
+            
+            result = solver.submit_answer(
+                email=email,
+                secret=SECRET,
+                url=quiz_url,
+                answer=answer
+            )
+            
+            active_sessions[session_key]['attempts'] += 1
+            
+            logger.info(f"Result: {result}")
+            return jsonify(result), 200
+        except Exception as solve_error:
+            logger.error(f"Error solving quiz: {str(solve_error)}", exc_info=True)
+            raise
     
     except Exception as e:
         logger.error(f"Error processing quiz: {str(e)}", exc_info=True)
